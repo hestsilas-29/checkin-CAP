@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Check-In Config</title>
+<style>
+  body { font-family:system-ui,-apple-system,Segoe UI,sans-serif; max-width:560px; margin:30px auto; padding:0 16px; color:#111; }
+  h1 { font-size:1.5rem; }
+  label { display:block; margin-top:16px; font-weight:600; }
+  small { display:block; font-weight:400; color:#555; margin-top:2px; }
+  input { width:100%; font-size:1rem; padding:10px; margin-top:6px; border:1px solid #999; border-radius:8px; }
+  button { font-size:1rem; padding:10px 16px; margin:18px 8px 0 0; border:0; border-radius:8px; background:#0b3d91; color:#fff; cursor:pointer; }
+  button.alt { background:#555; }
+  #msg { margin-top:18px; padding:12px; border-radius:8px; display:none; }
+  #msg.ok { display:block; background:#dff3e3; } #msg.bad { display:block; background:#fde2e0; }
+  #fields { display:none; }
+</style>
+</head>
+<body>
+<h1>Check-In Configuration</h1>
+<p><a href="index.html">&larr; Back to scanner</a></p>
+
+<label>Admin PIN
+  <small>First time? Leave this blank and choose a PIN below.</small>
+  <input id="pin" type="password" autocomplete="off">
+</label>
+<button id="load" type="button">Load settings</button>
+
+<div id="fields">
+  <label>Staff email(s)
+    <small>Separate several addresses with commas.</small>
+    <input id="email" type="text" placeholder="staff@example.org, commander@example.org">
+  </label>
+  <label>Send attendance report at
+    <small>Sent once on meeting days, only if someone checked in (time zone is set in Code.gs).</small>
+    <input id="time" type="time" value="20:00">
+  </label>
+  <label>Station code
+    <small>Typed once on each scanning device. Keeps outsiders from posting check-ins.</small>
+    <input id="stationKey" type="text" autocomplete="off">
+  </label>
+  <label>New admin PIN
+    <small id="pinHint">Leave blank to keep the current PIN.</small>
+    <input id="newPin" type="password" autocomplete="off">
+  </label>
+  <button id="save" type="button">Save</button>
+  <button id="test" type="button" class="alt">Send test email now</button>
+</div>
+<div id="msg"></div>
+
+<script src="config.js"></script>
+<script>
+(function () {
+  const $ = id => document.getElementById(id);
+  function msg(kind, text) { const m = $('msg'); m.className = kind; m.textContent = text; }
+  async function post(body) {
+    const r = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body) });
+    return r.json();
+  }
+  function guard() {
+    if (!API_URL || API_URL.indexOf('PASTE') === 0) { msg('bad', 'Set API_URL in config.js first.'); return false; }
+    return true;
+  }
+
+  $('load').addEventListener('click', async () => {
+    if (!guard()) return;
+    try {
+      const res = await post({ action: 'getConfig', pin: $('pin').value });
+      if (!res.ok) { msg('bad', res.error); return; }
+      $('fields').style.display = 'block';
+      $('email').value = res.email || '';
+      $('time').value = res.time || '20:00';
+      $('stationKey').value = res.stationKey || '';
+      if (res.firstRun) {
+        $('pinHint').textContent = 'First-time setup: choose an admin PIN (4+ characters).';
+        msg('ok', 'First-time setup. Fill in everything below and save.');
+      } else {
+        msg('ok', res.lastSent ? 'Loaded. Last report sent for ' + res.lastSent + '.' : 'Loaded.');
+      }
+    } catch (e) { msg('bad', 'Could not reach the server. Check API_URL.'); }
+  });
+
+  $('save').addEventListener('click', async () => {
+    if (!guard()) return;
+    try {
+      const res = await post({
+        action: 'saveConfig', pin: $('pin').value, newPin: $('newPin').value,
+        email: $('email').value, time: $('time').value, stationKey: $('stationKey').value
+      });
+      if (!res.ok) { msg('bad', res.error); return; }
+      if ($('newPin').value) { $('pin').value = $('newPin').value; $('newPin').value = ''; }
+      msg('ok', 'Saved.');
+    } catch (e) { msg('bad', 'Could not reach the server.'); }
+  });
+
+  $('test').addEventListener('click', async () => {
+    if (!guard()) return;
+    try {
+      const res = await post({ action: 'sendTest', pin: $('pin').value });
+      msg(res.ok ? 'ok' : 'bad', res.ok ? 'Test email sent (' + res.count + ' check-ins today).' : res.error);
+    } catch (e) { msg('bad', 'Could not reach the server.'); }
+  });
+})();
+</script>
+</body>
+</html>

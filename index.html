@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>CAP Cadet Check-In</title>
+<style>
+  :root { --bg:#0b1f3a; --card:#13305a; --ok:#1b8a3a; --warn:#b7791f; --bad:#b3261e; }
+  * { box-sizing: border-box; }
+  body { margin:0; min-height:100vh; background:var(--bg); color:#fff; font-family:system-ui,-apple-system,Segoe UI,sans-serif;
+         display:flex; flex-direction:column; align-items:center; padding:24px; }
+  h1 { margin:0 0 4px; font-size:1.6rem; }
+  .sub { opacity:.75; margin-bottom:20px; text-align:center; }
+  #scan { width:min(560px,100%); font-size:2rem; padding:16px; text-align:center; border-radius:12px;
+          border:3px solid #6ea8ff; background:#fff; color:#000; }
+  #status { width:min(560px,100%); margin-top:20px; padding:24px 16px; border-radius:16px; text-align:center;
+            background:var(--card); min-height:130px; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+  #status.ok { background:var(--ok); } #status.warn { background:var(--warn); } #status.bad { background:var(--bad); }
+  #title { font-size:1.8rem; font-weight:700; } #detail { margin-top:6px; font-size:1.1rem; opacity:.9; }
+  #recent { width:min(560px,100%); margin-top:20px; padding:0; list-style:none; }
+  #recent li { padding:8px 12px; border-bottom:1px solid #ffffff22; display:flex; justify-content:space-between; }
+  #foot { margin-top:auto; padding-top:24px; font-size:.85rem; opacity:.7; text-align:center; }
+  #foot a, #foot button { color:#9cc4ff; background:none; border:0; cursor:pointer; font:inherit; text-decoration:underline; }
+  #setup { display:none; width:min(560px,100%); background:var(--card); padding:20px; border-radius:16px; }
+  #setup input { width:100%; font-size:1.2rem; padding:10px; margin:10px 0; border-radius:8px; border:0; }
+  #setup button { font-size:1.1rem; padding:10px 18px; border-radius:8px; border:0; background:#6ea8ff; cursor:pointer; }
+</style>
+</head>
+<body>
+<h1>Cadet Check-In</h1>
+<div class="sub">Scan your CAP membership card</div>
+
+<div id="setup">
+  <b>Station setup</b>
+  <p>Enter the station code set on the config page. This device remembers it.</p>
+  <input id="keyInput" type="password" placeholder="Station code" autocomplete="off">
+  <button id="keySave">Save</button>
+</div>
+
+<input id="scan" type="text" inputmode="none" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Waiting for scan…" autofocus>
+<div id="status"><div id="title">Ready</div><div id="detail"></div></div>
+<ul id="recent"></ul>
+
+<div id="foot">
+  <span id="pending"></span>
+  <a href="config.html">Config</a> ·
+  <button id="changeKey" type="button">Change station code</button>
+</div>
+
+<script src="config.js"></script>
+<script>
+(function () {
+  const $ = id => document.getElementById(id);
+  const LS = { key: 'cap_station_key', queue: 'cap_queue' };
+  const scan = $('scan');
+  let last = { id: '', t: 0 };
+  let clearTimer = null;
+  const recent = [];
+
+  function lsGet(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : v; } catch (e) { return d; } }
+  function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+  function getQueue() { try { return JSON.parse(lsGet(LS.queue, '[]')); } catch (e) { return []; } }
+  function setQueue(q) { lsSet(LS.queue, JSON.stringify(q)); renderPending(); }
+  function renderPending() { const n = getQueue().length; $('pending').textContent = n ? n + ' scan(s) waiting to upload · ' : ''; }
+
+  function show(kind, title, detail) {
+    const s = $('status');
+    s.className = kind;
+    $('title').textContent = title;
+    $('detail').textContent = detail || '';
+    clearTimeout(clearTimer);
+    if (kind !== 'wait') clearTimer = setTimeout(() => show('', 'Ready', ''), 5000);
+  }
+
+  function addRecent(label, time) {
+    recent.unshift({ label, time });
+    if (recent.length > 8) recent.pop();
+    const ul = $('recent');
+    ul.innerHTML = '';
+    recent.forEach(r => {
+      const li = document.createElement('li');
+      const a = document.createElement('span'); a.textContent = r.label;
+      const b = document.createElement('span'); b.textContent = r.time;
+      li.appendChild(a); li.appendChild(b); ul.appendChild(li);
+    });
+  }
+
+  function needKey() { $('setup').style.display = 'block'; $('keyInput').focus(); }
+  function focusScan() { if ($('setup').style.display !== 'block') scan.focus(); }
+
+  async function post(body) {
+    const r = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(body)
+    });
+    return r.json();
+  }
+
+  async function handleScan(raw) {
+    const capid = raw.replace(/\D/g, '');
+    if (!capid) return;
+    if (capid.length < 4 || capid.length > 8) { show('bad', 'Could not read card', 'Please scan again'); return; }
+    const now = Date.now();
+    if (capid === last.id && now - last.t < 3000) return;   // ignore double-reads
+    last = { id: capid, t: now };
+
+    if (!API_URL || API_URL.indexOf('PASTE') === 0) { show('bad', 'Not configured', 'Set API_URL in config.js'); return; }
+    const key = lsGet(LS.key, '');
+    if (!key) { needKey(); return; }
+
+    show('wait', 'Checking…', capid);
+    const payload = { action: 'checkin', key, capid, ts: new Date(now).toISOString() };
+    try {
+      const res = await post(payload);
+      if (res.badKey) { try { localStorage.removeItem(LS.key); } catch (e) {} show('bad', 'Wrong station code', ''); needKey(); return; }
+      if (!res.ok) { show('bad', 'Error', res.error || 'Try again'); return; }
+      const who = res.name || ('CAPID ' + res.capid);
+      if (res.duplicate) {
+        show('warn', 'Already checked in', who + ' at ' + String(res.time).slice(0, 5));
+      } else {
+        show('ok', 'Welcome, ' + who + '!', res.name ? 'CAPID ' + res.capid : 'Not on roster yet, but you are logged');
+        addRecent(who, String(res.time).slice(0, 5));
+      }
+    } catch (e) {
+      const q = getQueue(); q.push(payload); setQueue(q);
+      show('warn', 'Saved offline', 'CAPID ' + capid + ' will upload when the connection returns');
+    }
+  }
+
+  async function flush() {
+    let q = getQueue();
+    if (!q.length || !lsGet(LS.key, '')) return;
+    while (q.length) {
+      try {
+        const item = Object.assign({}, q[0], { key: lsGet(LS.key, '') });
+        const res = await post(item);
+        if (res.badKey) break;
+        q.shift(); setQueue(q);
+      } catch (e) { break; }
+    }
+  }
+
+  scan.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); const v = scan.value; scan.value = ''; handleScan(v); }
+  });
+  scan.addEventListener('blur', () => setTimeout(focusScan, 100));
+  document.addEventListener('click', e => { if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'BUTTON' && e.target.tagName !== 'A') focusScan(); });
+
+  $('keySave').addEventListener('click', () => {
+    const v = $('keyInput').value.trim();
+    if (!v) return;
+    lsSet(LS.key, v); $('keyInput').value = '';
+    $('setup').style.display = 'none'; show('', 'Ready', ''); scan.focus(); flush();
+  });
+  $('changeKey').addEventListener('click', needKey);
+
+  window.addEventListener('online', flush);
+  setInterval(flush, 30000);
+  renderPending();
+  if (!lsGet(LS.key, '')) needKey();
+})();
+</script>
+</body>
+</html>
