@@ -1,21 +1,39 @@
 /**
  * CAP Cadet Check-In backend (Google Apps Script, bound to a Google Sheet).
  *
- * Sheet tabs (created automatically):
- *   Log    - Date, Time, CAPID, Name   (one row per cadet per day)
- *   Roster - CAPID, Name               (optional; fill in so names show up)
+ * Sheet tabs:
+ *   Log       - master history: Date, Time, CAPID, Name
+ *   10-8-26   - one attendance sheet per meeting date (tab-safe form of 10/8/26)
+ *   Roster    - CAPID, Name (keep this tab last; optional)
  *
- * Settings (email, send time, admin PIN, station code) live in Script Properties
- * and are edited from config.html, never stored in the public GitHub repo.
+ * The date tabs are created automatically when the first check-in for a date
+ * is recorded. Existing Log rows are migrated when setup() is run.
  */
 
-const TZ = 'America/New_York';          // change if your squadron is in another time zone
+const TZ = 'America/New_York';
 const LOG_HEADERS = ['Date', 'Time', 'CAPID', 'Name'];
+const DATE_HEADERS = ['CAPID', 'Time', 'Name'];
 
 /* ---------- one-time setup: run this from the editor ---------- */
 function setup() {
-  logSheet_();
-  rosterSheet_();
+  const log = logSheet_();
+  const roster = rosterSheet_();
+
+  // Keep the workbook organized: Log first, dated attendance tabs next, Roster last.
+  log.setIndex(1);
+  roster.setIndex(SpreadsheetApp.getActiveSpreadsheet().getSheets().length);
+
+  // Backfill dated sheets from any existing Log data.
+  const rows = log.getDataRange().getValues().slice(1);
+  const byDate = {};
+  rows.forEach(r => {
+    const date = String(r[0] || '');
+    const capid = String(r[2] || '');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !capid) return;
+    (byDate[date] || (byDate[date] = [])).push([capid, String(r[1] || ''), String(r[3] || '')]);
+  });
+  Object.keys(byDate).sort().forEach(date => syncDateSheet_(date, byDate[date]));
+
   ensureTrigger_();
 }
 
@@ -66,13 +84,21 @@ function checkin_(req) {
   const rows = log.getDataRange().getValues();
   for (let i = 1; i < rows.length; i++) {
     if (String(rows[i][0]) === today && String(rows[i][2]) === capid) {
-      return { ok: true, duplicate: true, capid: capid, name: String(rows[i][3] || ''), time: String(rows[i][1]) };
+      return {
+        ok: true,
+        duplicate: true,
+        capid: capid,
+        name: String(rows[i][3] || ''),
+        time: String(rows[i][1])
+      };
     }
   }
 
   const name = roster_()[capid] || '';
   const r = log.getLastRow() + 1;
   log.getRange(r, 1, 1, 4).setNumberFormat('@').setValues([[today, time, capid, name]]);
+
+  appendDateRow_(today, capid, time, name);
   return { ok: true, duplicate: false, capid: capid, name: name, time: time };
 }
 
@@ -130,8 +156,6 @@ function sendTest_(req) {
 }
 
 /* ---------- scheduled report ---------- */
-// Runs every 10 minutes. Sends once per day, at or after the configured time,
-// and only on days when at least one cadet checked in.
 function tick() {
   const p = props_();
   const email = p.getProperty('EMAIL');
@@ -193,11 +217,13 @@ function logSheet_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sh = ss.getSheetByName('Log');
   if (!sh) {
-    sh = ss.insertSheet('Log');
+    sh = ss.insertSheet('Log', 0);
     sh.getRange('A:D').setNumberFormat('@');
     sh.appendRow(LOG_HEADERS);
-    sh.setFrozenRows(1);
   }
+  sh.setFrozenRows(1);
+  sh.getRange('A:D').setNumberFormat('@');
+  if (sh.getIndex() !== 1) sh.setIndex(1);
   return sh;
 }
 
@@ -208,8 +234,11 @@ function rosterSheet_() {
     sh = ss.insertSheet('Roster');
     sh.getRange('A:A').setNumberFormat('@');
     sh.appendRow(['CAPID', 'Name']);
-    sh.setFrozenRows(1);
   }
+  sh.setFrozenRows(1);
+  sh.getRange('A:A').setNumberFormat('@');
+  // Keep Roster after all attendance tabs.
+  sh.setIndex(ss.getSheets().length);
   return sh;
 }
 
@@ -227,6 +256,66 @@ function todayRows_(today) {
   return logSheet_().getDataRange().getValues().slice(1)
     .filter(r => String(r[0]) === today)
     .sort((a, b) => String(a[1]).localeCompare(String(b[1])));
+}
+
+/* ---------- dated attendance sheets ---------- */
+function displayDate_(date) {
+  const d = new Date(date + 'T12:00:00Z');
+  return Utilities.formatDate(d, TZ, 'M/d/yy');
+}
+
+// Google Sheets tab names do not accept slash characters, so use a tab-safe
+// version such as 10-8-26 while the sheet itself displays 10/8/26 as the title.
+function dateSheetName_(date) {
+  const d = new Date(date + 'T12:00:00Z');
+  return Utilities.formatDate(d, TZ, 'M-d-yy');
+}
+
+function dateSheet_(date) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const name = dateSheetName_(date);
+  let sh = ss.getSheetByName(name);
+  if (!sh) {
+    sh = ss.insertSheet(name);
+    sh.getRange('A:C').setNumberFormat('@');
+    sh.getRange('A1:C1').merge().setValue(displayDate_(date));
+    sh.getRange('A2:C2').setValues([DATE_HEADERS]);
+    sh.getRange('A1:C1').setFontWeight('bold').setFontSize(16).setHorizontalAlignment('center');
+    sh.getRange('A2:C2').setFontWeight('bold');
+    sh.setFrozenRows(2);
+
+    // Put all date tabs after Log and before Roster.
+    const roster = ss.getSheetByName('Roster');
+    const targetIndex = roster ? roster.getIndex() : ss.getSheets().length + 1;
+    sh.setIndex(Math.max(2, targetIndex));
+    sh.autoResizeColumns(1, 3);
+  }
+  return sh;
+}
+
+function appendDateRow_(date, capid, time, name) {
+  const sh = dateSheet_(date);
+  const existing = sh.getDataRange().getValues();
+  for (let i = 2; i < existing.length; i++) {
+    if (String(existing[i][0]) === capid) return;
+  }
+  const row = sh.getLastRow() + 1;
+  sh.getRange(row, 1, 1, 3).setNumberFormat('@').setValues([[capid, time, name]]);
+  sh.autoResizeColumns(1, 3);
+}
+
+function syncDateSheet_(date, rows) {
+  const sh = dateSheet_(date);
+  const existing = sh.getDataRange().getValues();
+  const have = {};
+  for (let i = 2; i < existing.length; i++) {
+    if (existing[i][0]) have[String(existing[i][0])] = true;
+  }
+  const toAdd = rows.filter(r => r[0] && !have[String(r[0])]);
+  if (toAdd.length) {
+    sh.getRange(sh.getLastRow() + 1, 1, toAdd.length, 3).setNumberFormat('@').setValues(toAdd);
+  }
+  sh.autoResizeColumns(1, 3);
 }
 
 function ensureTrigger_() {

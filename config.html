@@ -4,51 +4,80 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex">
-<title>Check-In Config</title>
+<title>Check-In Configuration</title>
+<link rel="stylesheet" href="app.css">
 <style>
-  body { font-family:system-ui,-apple-system,Segoe UI,sans-serif; max-width:560px; margin:30px auto; padding:0 16px; color:#111; }
-  h1 { font-size:1.5rem; }
-  label { display:block; margin-top:16px; font-weight:600; }
-  small { display:block; font-weight:400; color:#555; margin-top:2px; }
-  input { width:100%; font-size:1rem; padding:10px; margin-top:6px; border:1px solid #999; border-radius:8px; }
-  button { font-size:1rem; padding:10px 16px; margin:18px 8px 0 0; border:0; border-radius:8px; background:#0b3d91; color:#fff; cursor:pointer; }
-  button.alt { background:#555; }
-  #msg { margin-top:18px; padding:12px; border-radius:8px; display:none; }
-  #msg.ok { display:block; background:#dff3e3; } #msg.bad { display:block; background:#fde2e0; }
+  .config-card { max-width:720px; padding:24px; }
+  .config-card h1 { margin:0; font-size:clamp(1.8rem,4vw,2.5rem); }
+  .config-card .lead { color:var(--muted); margin:8px 0 22px; }
+  .config-grid { display:grid; grid-template-columns:1fr 1fr; gap:0 16px; }
+  .full { grid-column:1 / -1; }
+  label { display:block; margin-top:16px; font-weight:750; }
+  small { display:block; margin-top:4px; color:var(--muted); font-weight:400; line-height:1.4; }
+  .field { width:100%; margin-top:8px; border:1px solid var(--line); border-radius:12px; padding:12px 13px; background:rgba(0,0,0,.16); color:var(--text); outline:none; }
+  .field:focus { border-color:var(--accent); box-shadow:0 0 0 3px rgba(117,184,255,.12); }
+  .buttons { display:flex; flex-wrap:wrap; gap:10px; margin-top:22px; }
+  #msg { margin-top:16px; padding:13px 14px; border-radius:12px; display:none; }
+  #msg.ok { display:block; background:rgba(39,184,100,.16); border:1px solid rgba(110,246,157,.25); }
+  #msg.bad { display:block; background:rgba(217,87,79,.16); border:1px solid rgba(248,126,118,.24); }
   #fields { display:none; }
+  .info { margin-top:18px; padding:14px; border:1px solid var(--line); background:rgba(255,255,255,.045); border-radius:14px; color:var(--muted); font-size:.9rem; line-height:1.55; }
+  @media (max-width:620px) { .config-grid { grid-template-columns:1fr; } .full { grid-column:auto; } }
 </style>
 </head>
 <body>
-<h1>Check-In Configuration</h1>
-<p><a href="index.html">&larr; Back to scanner</a></p>
+<main class="page">
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">CAP</div>
+      <div>
+        <div class="brand-title">Cadet Check-In</div>
+        <div class="brand-sub">Administration</div>
+      </div>
+    </div>
+    <div class="top-actions"><a class="link-btn" href="./">← Scanner</a></div>
+  </header>
 
-<label>Admin PIN
-  <small>First time? Leave this blank and choose a PIN below.</small>
-  <input id="pin" type="password" autocomplete="off">
-</label>
-<button id="load" type="button">Load settings</button>
+  <section class="card config-card">
+    <h1>Configuration</h1>
+    <p class="lead">Manage the attendance station, report email, and scheduled send time.</p>
 
-<div id="fields">
-  <label>Staff email(s)
-    <small>Separate several addresses with commas.</small>
-    <input id="email" type="text" placeholder="staff@example.org, commander@example.org">
-  </label>
-  <label>Send attendance report at
-    <small>Sent once on meeting days, only if someone checked in (time zone is set in Code.gs).</small>
-    <input id="time" type="time" value="20:00">
-  </label>
-  <label>Station code
-    <small>Typed on the scanner page each time it is opened or refreshed. Keeps outsiders from posting check-ins.</small>
-    <input id="stationKey" type="text" autocomplete="off">
-  </label>
-  <label>New admin PIN
-    <small id="pinHint">Leave blank to keep the current PIN.</small>
-    <input id="newPin" type="password" autocomplete="off">
-  </label>
-  <button id="save" type="button">Save</button>
-  <button id="test" type="button" class="alt">Send test email now</button>
-</div>
-<div id="msg"></div>
+    <label>Admin PIN
+      <small>First time? Leave this blank and choose a PIN below.</small>
+      <input id="pin" class="field" type="password" autocomplete="off">
+    </label>
+    <button id="load" class="primary-btn" type="button" style="margin-top:16px">Load settings</button>
+
+    <div id="fields">
+      <div class="config-grid">
+        <label class="full">Staff email(s)
+          <small>Separate several addresses with commas.</small>
+          <input id="email" class="field" type="text" placeholder="staff@example.org, commander@example.org">
+        </label>
+        <label>Send attendance report at
+          <small>Sent once per day after this time, only when there are check-ins.</small>
+          <input id="time" class="field" type="time" value="20:00">
+        </label>
+        <label>Station code
+          <small>Entered on the scanner/camera page when it opens. Never stored in browser storage.</small>
+          <input id="stationKey" class="field" type="text" autocomplete="off">
+        </label>
+        <label class="full">New admin PIN
+          <small id="pinHint">Leave blank to keep the current PIN.</small>
+          <input id="newPin" class="field" type="password" autocomplete="off">
+        </label>
+      </div>
+      <div class="buttons">
+        <button id="save" class="primary-btn" type="button">Save settings</button>
+        <button id="test" class="ghost-btn" type="button">Send test email</button>
+      </div>
+      <div class="info">
+        Attendance is kept in the <b>Log</b> tab, with a separate dated attendance tab created for each date. Date tabs use a dash in the tab name because Google Sheets does not accept slashes in tab names; the sheet itself shows the date in M/D/YY format at the top.
+      </div>
+    </div>
+    <div id="msg"></div>
+  </section>
+</main>
 
 <script src="config.js"></script>
 <script>
@@ -56,51 +85,48 @@
   const $ = id => document.getElementById(id);
   function msg(kind, text) { const m = $('msg'); m.className = kind; m.textContent = text; }
   async function post(body) {
-    const r = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body) });
+    const r = await fetch(API_URL, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body:JSON.stringify(body) });
     return r.json();
   }
   function guard() {
-    if (!API_URL || API_URL.indexOf('PASTE') === 0) { msg('bad', 'Set API_URL in config.js first.'); return false; }
+    if (!API_URL || API_URL.indexOf('PASTE') === 0) { msg('bad','Set API_URL in config.js first.'); return false; }
     return true;
   }
 
   $('load').addEventListener('click', async () => {
     if (!guard()) return;
     try {
-      const res = await post({ action: 'getConfig', pin: $('pin').value });
-      if (!res.ok) { msg('bad', res.error); return; }
-      $('fields').style.display = 'block';
-      $('email').value = res.email || '';
-      $('time').value = res.time || '20:00';
-      $('stationKey').value = res.stationKey || '';
+      const res = await post({ action:'getConfig', pin:$('pin').value });
+      if (!res.ok) { msg('bad',res.error); return; }
+      $('fields').style.display='block';
+      $('email').value=res.email || '';
+      $('time').value=res.time || '20:00';
+      $('stationKey').value=res.stationKey || '';
       if (res.firstRun) {
-        $('pinHint').textContent = 'First-time setup: choose an admin PIN (4+ characters).';
-        msg('ok', 'First-time setup. Fill in everything below and save.');
+        $('pinHint').textContent='First-time setup: choose an admin PIN (4+ characters).';
+        msg('ok','First-time setup. Fill in everything below and save.');
       } else {
-        msg('ok', res.lastSent ? 'Loaded. Last report sent for ' + res.lastSent + '.' : 'Loaded.');
+        msg('ok',res.lastSent ? 'Loaded. Last report sent for ' + res.lastSent + '.' : 'Loaded.');
       }
-    } catch (e) { msg('bad', 'Could not reach the server. Check API_URL.'); }
+    } catch (e) { msg('bad','Could not reach the server. Check API_URL.'); }
   });
 
   $('save').addEventListener('click', async () => {
     if (!guard()) return;
     try {
-      const res = await post({
-        action: 'saveConfig', pin: $('pin').value, newPin: $('newPin').value,
-        email: $('email').value, time: $('time').value, stationKey: $('stationKey').value
-      });
-      if (!res.ok) { msg('bad', res.error); return; }
-      if ($('newPin').value) { $('pin').value = $('newPin').value; $('newPin').value = ''; }
-      msg('ok', 'Saved.');
-    } catch (e) { msg('bad', 'Could not reach the server.'); }
+      const res = await post({ action:'saveConfig', pin:$('pin').value, newPin:$('newPin').value, email:$('email').value, time:$('time').value, stationKey:$('stationKey').value });
+      if (!res.ok) { msg('bad',res.error); return; }
+      if ($('newPin').value) { $('pin').value=$('newPin').value; $('newPin').value=''; }
+      msg('ok','Saved successfully.');
+    } catch (e) { msg('bad','Could not reach the server.'); }
   });
 
   $('test').addEventListener('click', async () => {
     if (!guard()) return;
     try {
-      const res = await post({ action: 'sendTest', pin: $('pin').value });
+      const res = await post({ action:'sendTest', pin:$('pin').value });
       msg(res.ok ? 'ok' : 'bad', res.ok ? 'Test email sent (' + res.count + ' check-ins today).' : res.error);
-    } catch (e) { msg('bad', 'Could not reach the server.'); }
+    } catch (e) { msg('bad','Could not reach the server.'); }
   });
 })();
 </script>
